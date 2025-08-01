@@ -20,7 +20,7 @@ function Sidebar() {
   );
 
   return (
-    <div className="w-64 bg-gray-500 text-white min-h-screen p-4 space-y-4">
+    <div className="bg-gray-500 text-white p-4 space-y-4 md:min-h-screen">
       {navItem("/", "Dashboard")}
       {navItem("/books", "Books")}
       {navItem("/borrow-return", "Borrow / Return")}
