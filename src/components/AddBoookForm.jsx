@@ -34,7 +34,7 @@ function AddBookForm({ onBookAdded, onCancel }) {
     const token = localStorage.getItem("access_token");
 
     try {
-      await axios.post(
+      await api.post(
         "https://back-end-for-assessment.vercel.app/books",
         {
           title,
