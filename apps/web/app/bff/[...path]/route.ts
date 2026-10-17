@@ -1,6 +1,7 @@
 import { revalidateTag } from 'next/cache';
 import { NextResponse, type NextRequest } from 'next/server';
 import { CATALOG_TAG } from '@/lib/server-api';
+import { forwardedFor } from '@/lib/client-ip';
 import { ACCESS_COOKIE, API_URL } from '@/lib/session';
 
 /** Reads a guest may make without signing in (the catalogue). Everything else needs the cookie. */
@@ -20,7 +21,10 @@ async function forward(request: NextRequest, ctx: { params: Promise<{ path: stri
     return NextResponse.json({ title: 'Signed out', status: 401 }, { status: 401 });
   }
 
-  const headers: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {};
+  const headers: Record<string, string> = {
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+    ...forwardedFor(request.headers),
+  };
   const contentType = request.headers.get('content-type');
   if (contentType) headers['content-type'] = contentType;
   const idem = request.headers.get('idempotency-key');
