@@ -7,3 +7,5 @@ legacy
 apps/api/drizzle
 legacy
 apps/api/drizzle
+.next
+next-env.d.ts

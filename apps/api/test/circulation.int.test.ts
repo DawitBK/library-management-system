@@ -289,6 +289,25 @@ describe('listings and reports', () => {
     expect(returned.body.items.map((l: { id: string }) => l.id)).toEqual([a.id]);
   });
 
+  it('finds the open loan for a scanned barcode', async () => {
+    const book = await makeBook(ctx, librarian, genreId);
+    const member = await makeMember(ctx, librarian);
+    const loan = (await lend(member.id, { bookId: book.id })).body;
+    const found = await ctx
+      .http()
+      .get(`/api/v1/loans?barcode=${loan.barcode}&status=open`)
+      .set(librarian.auth);
+    expect(found.status).toBe(200);
+    expect(found.body.page.total).toBe(1);
+    expect(found.body.items[0].id).toBe(loan.id);
+    await ctx.http().post(`/api/v1/loans/${loan.id}/return`).set(librarian.auth);
+    const after = await ctx
+      .http()
+      .get(`/api/v1/loans?barcode=${loan.barcode}&status=open`)
+      .set(librarian.auth);
+    expect(after.body.page.total).toBe(0);
+  });
+
   it('reports overdue loans, popular genres and the dashboard totals', async () => {
     const g = await makeGenre(ctx, librarian);
     const member = await makeMember(ctx, librarian);

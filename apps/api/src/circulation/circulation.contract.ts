@@ -60,6 +60,13 @@ export const LOAN_SORT_FIELDS = ['borrowedAt', 'dueAt'] as const;
 export const listLoansQuerySchema = paginationQuerySchema.extend({
   status: z.enum(['open', 'returned', 'overdue']).optional(),
   memberId: z.uuid().optional(),
+  barcode: z
+    .string()
+    .trim()
+    .min(1)
+    .max(40)
+    .optional()
+    .describe('The copy the loan is for, as scanned'),
   sort: sortQuerySchema(LOAN_SORT_FIELDS, [{ field: 'borrowedAt', direction: 'desc' }]),
 });
 export type ListLoansQuery = z.output<typeof listLoansQuerySchema>;

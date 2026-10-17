@@ -300,6 +300,7 @@ export class CirculationService {
     const now = new Date();
     const where: SQL[] = [];
     if (query.memberId) where.push(eq(loans.memberId, query.memberId));
+    if (query.barcode) where.push(eq(bookCopies.barcode, query.barcode));
     if (query.status === 'open') where.push(isNull(loans.returnedAt));
     if (query.status === 'returned') where.push(isNotNull(loans.returnedAt));
     if (query.status === 'overdue') where.push(isNull(loans.returnedAt), lt(loans.dueAt, now));
@@ -316,6 +317,7 @@ export class CirculationService {
       this.db
         .select({ total: count() })
         .from(loans)
+        .innerJoin(bookCopies, eq(bookCopies.id, loans.copyId))
         .where(and(...where)),
     ]);
     return toPage(

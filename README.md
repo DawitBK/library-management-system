@@ -4,8 +4,8 @@ A library back office and public catalogue: books and their physical copies, mem
 renewals, fines and reports. Rebuilt on a modern stack as a reference implementation of an
 enterprise-grade service.
 
-> **Status:** the `next` branch holds the rebuild (API first; the staff app and public catalogue
-> follow). `main` still holds the original React front end, tagged `legacy-v1`, which depended on
+> **Status:** the `next` branch holds the rebuild (API, staff desk and public
+> catalogue). `main` still holds the original React front end, tagged `legacy-v1`, which depended on
 > someone else's hosted API. The front end lives in [`legacy/`](legacy/) on this branch until the
 > rebuild reaches parity; what it used and what replaces it is in
 > [docs/rebuild/legacy-spec.md](docs/rebuild/legacy-spec.md).
@@ -58,6 +58,7 @@ DATABASE_URL=postgres://library:library@localhost:5432/library pnpm test:integra
 
 ```
 apps/api/        the HTTP API (NestJS)
+apps/web/        the public catalogue and the staff desk (Next.js; ADR 0004)
 packages/kit/    shared building blocks: env, logging, problem+json, pagination, health, OpenAPI
 packages/config/ shared TypeScript and ESLint presets
 docs/            ADRs, the enterprise-bar scorecard, the legacy recovery spec
