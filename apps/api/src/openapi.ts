@@ -43,6 +43,13 @@ import {
 } from './circulation/circulation.contract.js';
 import { Public } from './common/auth.js';
 import {
+  holdPageSchema,
+  holdSchema,
+  listHoldsQuerySchema,
+  placeHoldSchema,
+  processResultSchema,
+} from './holds/holds.contract.js';
+import {
   createMemberSchema,
   listMembersQuerySchema,
   memberDetailSchema,
@@ -354,6 +361,52 @@ export function openApiDocument(): Record<string, unknown> {
       ...tag('circulation'),
       request: { params: idParams },
       responses: { 200: { description: 'The loan', schema: loanSchema } },
+    }),
+    def('staff', {
+      method: 'post',
+      path: `${A}/holds`,
+      operationId: 'placeHold',
+      summary: 'Put a member in the queue for a book whose copies are all out',
+      ...tag('holds'),
+      request: { body: placeHoldSchema },
+      responses: {
+        201: { description: 'The hold, with its place in the queue', schema: holdSchema },
+      },
+    }),
+    def('staff', {
+      method: 'get',
+      path: `${A}/holds`,
+      operationId: 'listHolds',
+      summary: 'List holds (waiting, ready for pickup, closed)',
+      ...tag('holds'),
+      request: { query: query(listHoldsQuerySchema) },
+      responses: { 200: { description: 'A page', schema: holdPageSchema } },
+    }),
+    def('staff', {
+      method: 'get',
+      path: `${A}/holds/{id}`,
+      operationId: 'getHold',
+      summary: 'A hold',
+      ...tag('holds'),
+      request: { params: idParams },
+      responses: { 200: { description: 'The hold', schema: holdSchema } },
+    }),
+    def('staff', {
+      method: 'post',
+      path: `${A}/holds/{id}/cancel`,
+      operationId: 'cancelHold',
+      summary: 'Withdraw a hold; a copy set aside goes to the next member in line',
+      ...tag('holds'),
+      request: { params: idParams },
+      responses: { 200: { description: 'The closed hold', schema: holdSchema } },
+    }),
+    def('staff', {
+      method: 'post',
+      path: `${A}/holds/process`,
+      operationId: 'processHolds',
+      summary: 'Expire holds whose pickup time has passed and pass their copies on',
+      ...tag('holds'),
+      responses: { 200: { description: 'How many expired', schema: processResultSchema } },
     }),
     def('staff', {
       method: 'get',

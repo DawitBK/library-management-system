@@ -10,11 +10,13 @@ import {
   books,
   fines,
   genres,
+  holds,
   loans,
   members,
   outboxEvents,
   type FineRow,
 } from '../db/schema.js';
+import { expireStaleHolds, fillHolds, lockBook } from '../holds/hold-queue.js';
 import { memberStanding } from '../members/members.service.js';
 import type {
   CreateLoan,
@@ -136,7 +138,8 @@ export class CirculationService {
         );
       }
 
-      const copyId = await this.pickCopy(tx, input);
+      await expireStaleHolds(tx, actor.userId);
+      const { copyId, holdId } = await this.pickCopy(tx, input, member.id);
       const now = new Date();
       await tx
         .update(bookCopies)
@@ -152,6 +155,24 @@ export class CirculationService {
           issuedBy: actor.userId,
         })
         .returning({ id: loans.id });
+      if (holdId) {
+        await tx
+          .update(holds)
+          .set({
+            status: 'fulfilled',
+            closedAt: now,
+            fulfilledLoanId: loan!.id,
+            version: sql`${holds.version} + 1`,
+          })
+          .where(eq(holds.id, holdId));
+        await recordAudit(tx, {
+          actor: actor.userId,
+          action: 'hold.fulfilled',
+          entityType: 'hold',
+          entityId: holdId,
+          after: { loanId: loan!.id },
+        });
+      }
       const body = await this.readLoan(tx, loan!.id);
       await recordAudit(tx, {
         actor: actor.userId,
@@ -177,6 +198,11 @@ export class CirculationService {
       if (loan.returnedAt) {
         throw conflict('already-returned', 'Loan was already returned');
       }
+      const [returned] = await tx
+        .select({ bookId: bookCopies.bookId })
+        .from(bookCopies)
+        .where(eq(bookCopies.id, loan.copyId));
+      await lockBook(tx, returned!.bookId);
       const now = new Date();
       await tx
         .update(loans)
@@ -190,6 +216,7 @@ export class CirculationService {
           updatedAt: sql`now()`,
         })
         .where(eq(bookCopies.id, loan.copyId));
+      await fillHolds(tx, returned!.bookId, actor.userId);
 
       const late = daysOverdue(loan.dueAt, now);
       let fine: FineDto | null = null;
@@ -356,7 +383,7 @@ export class CirculationService {
       .where(gte(loans.borrowedAt, since))
       .groupBy(genres.id, genres.name)
       .orderBy(desc(count()), asc(genres.name))
-      .limit(10);
+      .limit(query.limit);
     return rows;
   }
 
@@ -424,7 +451,15 @@ export class CirculationService {
     });
   }
 
-  private async pickCopy(tx: Tx, input: CreateLoan): Promise<string> {
+  /**
+   * Choose the copy to lend. A copy set aside by a hold goes only to the member it is held for;
+   * lending by book prefers that member's own ready hold, then any copy still on the shelf.
+   */
+  private async pickCopy(
+    tx: Tx,
+    input: CreateLoan,
+    memberId: string,
+  ): Promise<{ copyId: string; holdId: string | null }> {
     if (input.barcode !== undefined) {
       const [copy] = await tx
         .select({ id: bookCopies.id, status: bookCopies.status, deletedAt: books.deletedAt })
@@ -433,16 +468,48 @@ export class CirculationService {
         .where(eq(bookCopies.barcode, input.barcode))
         .for('update', { of: bookCopies });
       if (!copy || copy.deletedAt) throw notFound(`No copy has the barcode ${input.barcode}`);
+      if (copy.status === 'held') {
+        const [mine] = await tx
+          .select({ id: holds.id })
+          .from(holds)
+          .where(
+            and(eq(holds.copyId, copy.id), eq(holds.memberId, memberId), eq(holds.status, 'ready')),
+          )
+          .for('update');
+        if (!mine) {
+          throw conflict(
+            'copy-held',
+            'Copy is held for another member',
+            'It is set aside at the desk for someone who reserved it',
+          );
+        }
+        return { copyId: copy.id, holdId: mine.id };
+      }
       if (copy.status !== 'available') {
         throw conflict('copy-unavailable', 'Copy is not available', `It is ${copy.status}`);
       }
-      return copy.id;
+      return { copyId: copy.id, holdId: null };
     }
     const [book] = await tx
       .select({ id: books.id })
       .from(books)
       .where(and(eq(books.id, input.bookId!), isNull(books.deletedAt)));
     if (!book) throw notFound(`Book ${input.bookId} does not exist`);
+    const [reserved] = await tx
+      .select({ id: holds.id, copyId: holds.copyId })
+      .from(holds)
+      .where(
+        and(eq(holds.bookId, book.id), eq(holds.memberId, memberId), eq(holds.status, 'ready')),
+      )
+      .for('update');
+    if (reserved?.copyId) {
+      await tx
+        .select({ id: bookCopies.id })
+        .from(bookCopies)
+        .where(eq(bookCopies.id, reserved.copyId))
+        .for('update');
+      return { copyId: reserved.copyId, holdId: reserved.id };
+    }
     const [copy] = await tx
       .select({ id: bookCopies.id })
       .from(bookCopies)
@@ -457,7 +524,7 @@ export class CirculationService {
         'Every copy is out or unavailable',
       );
     }
-    return copy.id;
+    return { copyId: copy.id, holdId: null };
   }
 
   private joined(executor: Pick<Database, 'select'>) {

@@ -32,7 +32,7 @@ describe('sign-in', () => {
     const admin = await makeStaff(ctx, 'admin');
     const victim = await makeStaff(ctx);
     const version = (
-      await ctx.http().get('/api/v1/staff?limit=100').set(admin.auth)
+      await ctx.http().get(`/api/v1/staff?q=${victim.email}`).set(admin.auth)
     ).body.items.find((u: { id: string }) => u.id === victim.id).version;
     const disabled = await ctx
       .http()
@@ -180,7 +180,7 @@ describe('staff administration', () => {
   it('ends a disabled account’s sessions at once and refuses self-lockout', async () => {
     const admin = await makeStaff(ctx, 'admin');
     const staff = await makeStaff(ctx);
-    const list = await ctx.http().get('/api/v1/staff?limit=100').set(admin.auth);
+    const list = await ctx.http().get(`/api/v1/staff?q=${staff.email}`).set(admin.auth);
     const row = list.body.items.find((u: { id: string }) => u.id === staff.id);
 
     const off = await ctx
@@ -198,7 +198,8 @@ describe('staff administration', () => {
         .status,
     ).toBe(401);
 
-    const self = list.body.items.find((u: { id: string }) => u.id === admin.id);
+    const mine = await ctx.http().get(`/api/v1/staff?q=${admin.email}`).set(admin.auth);
+    const self = mine.body.items.find((u: { id: string }) => u.id === admin.id);
     const lockout = await ctx
       .http()
       .patch(`/api/v1/staff/${admin.id}`)

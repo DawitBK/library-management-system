@@ -8,6 +8,10 @@ export const POLICY = {
   finePerDayMinor: 200,
   /** A member who owes at least this much cannot borrow until they pay or are waived. */
   borrowBlockedAtFineMinor: 5000,
+  /** Holds a member may have in the queue at once. */
+  maxLiveHolds: 5,
+  /** Days a held copy waits at the desk before it goes to the next member. */
+  holdPickupDays: 3,
 } as const;
 
 const DAY_MS = 24 * 60 * 60 * 1000;

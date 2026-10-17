@@ -17,15 +17,16 @@ document, Vitest, pnpm 10 and Turborepo. Decisions are in [docs/adr](docs/adr).
 
 ## What the API does
 
-| Area        | Behaviour                                                                                                                                  |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Staff       | sign in, rotating refresh tokens with reuse detection, roles `librarian` and `admin`; only an admin creates, re-roles or disables accounts |
-| Catalogue   | public search by title, author or ISBN (check digits verified); genres; books with physical copies and barcodes; soft delete               |
-| Members     | records with a card number; suspend; deleted only when they hold nothing and owe nothing                                                   |
-| Circulation | lend by book or barcode, return, renew (limited); loan limit per member; the last copy goes to exactly one desk; idempotent                |
-| Fines       | charged per overdue day on return, paid or waived (admin only, with a reason); high fines block borrowing                                  |
-| Reports     | overdue loans, popular genres, dashboard totals                                                                                            |
-| Platform    | problem+json errors, request ids, health and readiness, `/openapi.json`, append-only audit log, transactional outbox                       |
+| Area        | Behaviour                                                                                                                                                        |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staff       | sign in, rotating refresh tokens with reuse detection, roles `librarian` and `admin`; only an admin creates, re-roles or disables accounts                       |
+| Catalogue   | public search by title, author or ISBN (check digits verified); genres; books with physical copies and barcodes; soft delete                                     |
+| Members     | records with a card number; suspend; deleted only when they hold nothing and owe nothing                                                                         |
+| Circulation | lend by book or barcode, return, renew (limited); loan limit per member; the last copy goes to exactly one desk; idempotent                                      |
+| Holds       | a queue per book when every copy is out; a returned copy is set aside for the longest-waiting member for three days, then passes on; only the holder can take it |
+| Fines       | charged per overdue day on return, paid or waived (admin only, with a reason); high fines block borrowing                                                        |
+| Reports     | overdue loans, popular genres, dashboard totals                                                                                                                  |
+| Platform    | problem+json errors, request ids, health and readiness, `/openapi.json`, append-only audit log, transactional outbox                                             |
 
 The lending rules (14-day loans, 2 renewals, 5 open loans, 2.00 ETB per overdue day) are in one
 file: [policy.ts](apps/api/src/circulation/policy.ts). Money is integer minor units.

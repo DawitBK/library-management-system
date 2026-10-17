@@ -77,6 +77,7 @@ export type WaiveFine = z.output<typeof waiveFineSchema>;
 
 export const popularGenresQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(365).default(30),
+  limit: z.coerce.number().int().min(1).max(50).default(10),
 });
 export type PopularGenresQuery = z.output<typeof popularGenresQuerySchema>;
 export const popularGenreSchema = z.object({

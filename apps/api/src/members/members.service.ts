@@ -6,6 +6,7 @@ import type { Principal } from '../common/auth.js';
 import { escapeLike, pgCode, versionConflict } from '../common/errors.js';
 import { DB, type Database, type Tx } from '../db/db.module.js';
 import { fines, loans, members, type MemberRow } from '../db/schema.js';
+import { cancelLiveHolds } from '../holds/hold-queue.js';
 import type {
   CreateMember,
   ListMembersQuery,
@@ -149,6 +150,7 @@ export class MembersService {
           `${standing.openLoans} open loans, ${standing.unpaidFinesMinor} minor units owed`,
         );
       }
+      await cancelLiveHolds(tx, { memberId: id }, actor.userId, 'member removed', { refill: true });
       await tx
         .update(members)
         .set({ deletedAt: sql`now()`, version: sql`${members.version} + 1`, updatedAt: sql`now()` })

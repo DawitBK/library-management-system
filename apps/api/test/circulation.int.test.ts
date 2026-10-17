@@ -304,7 +304,7 @@ describe('listings and reports', () => {
 
     const popular = await ctx
       .http()
-      .get('/api/v1/reports/popular-genres?days=30')
+      .get('/api/v1/reports/popular-genres?days=30&limit=50')
       .set(librarian.auth);
     expect(popular.body.find((p: { genreId: string }) => p.genreId === g)?.loans).toBe(2);
     expect(

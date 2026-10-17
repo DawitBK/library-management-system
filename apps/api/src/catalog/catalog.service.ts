@@ -1,11 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { conflict, notFound, ProblemException, toPage, unprocessable } from '@library/kit';
 import type { Pagination } from '@library/kit';
-import { and, asc, count, desc, eq, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { recordAudit } from '../common/audit.js';
 import type { Principal } from '../common/auth.js';
 import { escapeLike, pgCode, versionConflict } from '../common/errors.js';
 import { DB, type Database, type Tx } from '../db/db.module.js';
+import { cancelLiveHolds, fillHolds, lockBook, resetReadyHold } from '../holds/hold-queue.js';
 import {
   bookCopies,
   books,
@@ -310,6 +311,7 @@ export class CatalogService {
         );
       }
       const before = await this.readBook(tx, id);
+      await cancelLiveHolds(tx, { bookId: id }, actor.userId, 'book removed', { refill: false });
       await tx
         .update(bookCopies)
         .set({ status: 'withdrawn', ...touch() })
@@ -343,7 +345,19 @@ export class CatalogService {
   async addCopies(actor: Principal, bookId: string, input: AddCopies): Promise<CopyDto[]> {
     return this.db.transaction(async (tx) => {
       await this.lockLiveBook(tx, bookId);
-      const created = await this.insertCopies(tx, bookId, input.count);
+      const inserted = await this.insertCopies(tx, bookId, input.count);
+      // New copies go straight to members already waiting for this book.
+      await fillHolds(tx, bookId, actor.userId);
+      const fresh = await tx
+        .select()
+        .from(bookCopies)
+        .where(
+          inArray(
+            bookCopies.id,
+            inserted.map((c) => c.id),
+          ),
+        );
+      const created = fresh.map(toCopyDto).sort((x, y) => x.barcode.localeCompare(y.barcode));
       await recordAudit(tx, {
         actor: actor.userId,
         action: 'book.copies-added',
@@ -358,6 +372,12 @@ export class CatalogService {
   /** Mark a copy lost, withdrawn, or back on the shelf. A copy that is out on loan cannot be touched. */
   async setCopyStatus(actor: Principal, copyId: string, input: SetCopyStatus): Promise<CopyDto> {
     return this.db.transaction(async (tx) => {
+      const [probe] = await tx
+        .select({ bookId: bookCopies.bookId })
+        .from(bookCopies)
+        .where(eq(bookCopies.id, copyId));
+      if (!probe) throw notFound(`Copy ${copyId} does not exist`);
+      await lockBook(tx, probe.bookId);
       const [current] = await tx
         .select()
         .from(bookCopies)
@@ -380,7 +400,12 @@ export class CatalogService {
         .set({ status: input.status, ...touch() })
         .where(eq(bookCopies.id, copyId))
         .returning();
-      const after = toCopyDto(row!);
+      // A copy that was set aside for a member leaves their hold waiting, and a copy that is back on
+      // the shelf goes to whoever has waited longest.
+      if (current.status === 'held') await resetReadyHold(tx, copyId, actor.userId);
+      await fillHolds(tx, current.bookId, actor.userId);
+      const [settled] = await tx.select().from(bookCopies).where(eq(bookCopies.id, copyId));
+      const after = toCopyDto(settled ?? row!);
       await recordAudit(tx, {
         actor: actor.userId,
         action: 'copy.status-set',

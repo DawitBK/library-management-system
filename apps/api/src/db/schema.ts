@@ -19,7 +19,8 @@ import {
 export const ROLES = ['librarian', 'admin'] as const;
 export type Role = (typeof ROLES)[number];
 
-export const COPY_STATUSES = ['available', 'on_loan', 'lost', 'withdrawn'] as const;
+export const COPY_STATUSES = ['available', 'held', 'on_loan', 'lost', 'withdrawn'] as const;
+export const HOLD_STATUSES = ['waiting', 'ready', 'fulfilled', 'cancelled', 'expired'] as const;
 export const MEMBER_STATUSES = ['active', 'suspended'] as const;
 
 const id = () =>
@@ -148,7 +149,7 @@ export const bookCopies = pgTable(
   (t) => [
     check(
       'book_copies_status_valid',
-      sql`${t.status} in ('available', 'on_loan', 'lost', 'withdrawn')`,
+      sql`${t.status} in ('available', 'held', 'on_loan', 'lost', 'withdrawn')`,
     ),
     uniqueIndex('book_copies_barcode_uq').on(t.barcode),
     index('book_copies_book_status_idx').on(t.bookId, t.status),
@@ -243,6 +244,65 @@ export const fines = pgTable(
   ],
 );
 
+/**
+ * A member's place in the queue for a book whose copies are all out. When a copy comes back the
+ * oldest waiting hold becomes `ready` and the copy is `held` for that member until `expires_at`.
+ */
+export const holds = pgTable(
+  'holds',
+  {
+    id: id(),
+    bookId: uuid('book_id')
+      .notNull()
+      .references(() => books.id),
+    memberId: uuid('member_id')
+      .notNull()
+      .references(() => members.id),
+    status: text('status', { enum: HOLD_STATUSES }).notNull().default('waiting'),
+    placedAt: timestamp('placed_at', { withTimezone: true }).notNull().defaultNow(),
+    /** The copy set aside for the member; set while the hold is `ready` and kept once `fulfilled`. */
+    copyId: uuid('copy_id').references(() => bookCopies.id),
+    readyAt: timestamp('ready_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    fulfilledLoanId: uuid('fulfilled_loan_id').references(() => loans.id),
+    placedBy: uuid('placed_by')
+      .notNull()
+      .references(() => users.id),
+    version: version(),
+  },
+  (t) => [
+    check(
+      'holds_status_valid',
+      sql`${t.status} in ('waiting', 'ready', 'fulfilled', 'cancelled', 'expired')`,
+    ),
+    // The state names what must be present, so a half-updated hold cannot be stored.
+    check(
+      'holds_ready_shape',
+      sql`${t.status} <> 'ready' or (${t.copyId} is not null and ${t.expiresAt} is not null and ${t.closedAt} is null)`,
+    ),
+    check(
+      'holds_waiting_shape',
+      sql`${t.status} <> 'waiting' or (${t.copyId} is null and ${t.readyAt} is null and ${t.closedAt} is null)`,
+    ),
+    check(
+      'holds_closed_shape',
+      sql`${t.status} in ('waiting', 'ready') or ${t.closedAt} is not null`,
+    ),
+    // One live hold per member and book, and one ready hold per copy, whatever the application does.
+    uniqueIndex('holds_one_live_per_member_book')
+      .on(t.memberId, t.bookId)
+      .where(sql`${t.status} in ('waiting', 'ready')`),
+    uniqueIndex('holds_one_ready_per_copy')
+      .on(t.copyId)
+      .where(sql`${t.status} = 'ready'`),
+    index('holds_queue_idx')
+      .on(t.bookId, t.placedAt)
+      .where(sql`${t.status} = 'waiting'`),
+    index('holds_member_idx').on(t.memberId, t.placedAt),
+  ],
+);
+
 /** Append-only: a trigger (migration 0001) rejects UPDATE and DELETE. */
 export const auditLog = pgTable(
   'audit_log',
@@ -298,3 +358,4 @@ export type CopyRow = typeof bookCopies.$inferSelect;
 export type MemberRow = typeof members.$inferSelect;
 export type LoanRow = typeof loans.$inferSelect;
 export type FineRow = typeof fines.$inferSelect;
+export type HoldRow = typeof holds.$inferSelect;

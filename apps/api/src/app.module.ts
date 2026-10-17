@@ -6,6 +6,7 @@ import { CatalogModule } from './catalog/catalog.module.js';
 import { CirculationModule } from './circulation/circulation.module.js';
 import type { AuthConfig } from './common/auth.js';
 import { DbModule, POOL } from './db/db.module.js';
+import { HoldsModule } from './holds/holds.module.js';
 import { MembersModule } from './members/members.module.js';
 import { OpenApiController } from './openapi.js';
 
@@ -28,6 +29,7 @@ export class AppModule {
         CatalogModule,
         MembersModule,
         CirculationModule,
+        HoldsModule,
       ],
       controllers: [OpenApiController],
     };
