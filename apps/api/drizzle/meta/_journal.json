@@ -22,6 +22,13 @@
       "when": 1792260573631,
       "tag": "0002_holds",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792615827277,
+      "tag": "0003_sso_subject_and_platform_admin",
+      "breakpoints": true
     }
   ]
 }
