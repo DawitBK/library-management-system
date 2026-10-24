@@ -350,3 +350,80 @@ describe('single sign-on identity and sign-out', () => {
     ).toBeGreaterThanOrEqual(400);
   });
 });
+
+describe('roles the identity provider manages for this application', () => {
+  const emailOf = () => `${randomUUID()}@example.test`;
+  const rowOf = async (email: string) =>
+    (await ctx.pool.query('select role, active, first_name, last_name, sso_subject from users where email = $1', [email])).rows[0];
+
+  it('creates the account at the first sign-in with the role the provider gave, for single sign-on only', async () => {
+    const auth = ctx.app.get(AuthService);
+    const email = emailOf();
+    const tokens = await auth.loginWithVerifiedEmail(email, `sub-${randomUUID()}`, { roles: ['librarian'], firstName: 'Abebe', lastName: 'Kebede' });
+    expect(tokens.user).toMatchObject({ email, role: 'librarian', firstName: 'Abebe', lastName: 'Kebede' });
+    expect(await rowOf(email)).toMatchObject({ role: 'librarian', active: true });
+    // Nobody knows its password: the usual sign-in cannot be used with a guessed one.
+    expect((await ctx.http().post('/api/v1/auth/login').send({ email, password: PASSWORD })).status).toBe(401);
+    const audit = await ctx.pool.query(`select actor from audit_log where action = 'staff.created-by-sso' and after->>'email' = $1`, [email]);
+    expect(audit.rows).toEqual([{ actor: 'identity-provider' }]);
+  });
+
+  it("sets the role to the provider's at every sign-in, taking the strongest when several are given", async () => {
+    const auth = ctx.app.get(AuthService);
+    const email = emailOf();
+    const sub = `sub-${randomUUID()}`;
+    await auth.loginWithVerifiedEmail(email, sub, { roles: ['librarian'] });
+    expect((await auth.loginWithVerifiedEmail(email, sub, { roles: ['librarian', 'admin'] })).user.role).toBe('admin');
+    expect((await rowOf(email)).role).toBe('admin');
+    expect((await auth.loginWithVerifiedEmail(email, sub, { roles: ['librarian'] })).user.role).toBe('librarian'); // a demotion applies too
+    const changes = await ctx.pool.query(`select before->>'role' as before, after->>'role' as after from audit_log where action = 'staff.role-set-by-sso' and entity_id = (select id::text from users where email = $1) order by id`, [email]);
+    expect(changes.rows).toEqual([{ before: 'librarian', after: 'admin' }, { before: 'admin', after: 'librarian' }]);
+    // The same role again changes nothing and writes nothing.
+    await auth.loginWithVerifiedEmail(email, sub, { roles: ['librarian'] });
+    expect((await ctx.pool.query(`select count(*)::int as n from audit_log where action = 'staff.role-set-by-sso' and entity_id = (select id::text from users where email = $1)`, [email])).rows[0].n).toBe(2);
+  });
+
+  it('refuses with 403 when the provider gave no role we recognise, and creates nothing', async () => {
+    const auth = ctx.app.get(AuthService);
+    for (const roles of [[], ['wizard'], ['owner']]) {
+      const email = emailOf();
+      await expect(auth.loginWithVerifiedEmail(email, `sub-${randomUUID()}`, { roles })).rejects.toMatchObject({ status: 403 });
+      expect(await rowOf(email)).toBeUndefined();
+    }
+  });
+
+  it('a person who held an account and then lost every role is refused, and their account is kept', async () => {
+    const auth = ctx.app.get(AuthService);
+    const person = await makeStaff(ctx, 'admin');
+    await expect(auth.loginWithVerifiedEmail(person.email, `sub-${randomUUID()}`, { roles: [] })).rejects.toMatchObject({ status: 403 });
+    expect(await rowOf(person.email)).toMatchObject({ role: 'admin', active: true });
+  });
+
+  it('does not override an account switched off here, and still binds the id to one person', async () => {
+    const auth = ctx.app.get(AuthService);
+    const email = emailOf();
+    const sub = `sub-${randomUUID()}`;
+    await auth.loginWithVerifiedEmail(email, sub, { roles: ['librarian'] });
+    await ctx.pool.query('update users set active = false where email = $1', [email]);
+    await expect(auth.loginWithVerifiedEmail(email, sub, { roles: ['admin'] })).rejects.toMatchObject({ status: 401 });
+    expect(await rowOf(email)).toMatchObject({ role: 'librarian', active: false });
+    await expect(auth.loginWithVerifiedEmail(emailOf(), sub, { roles: ['librarian'] })).rejects.toMatchObject({ status: 401 }); // an id belongs to one account
+  });
+
+  it('two first sign-ins at once create one account', async () => {
+    const auth = ctx.app.get(AuthService);
+    const email = emailOf();
+    const sub = `sub-${randomUUID()}`;
+    const results = await Promise.allSettled([
+      auth.loginWithVerifiedEmail(email, sub, { roles: ['librarian'] }),
+      auth.loginWithVerifiedEmail(email, sub, { roles: ['librarian'] }),
+    ]);
+    expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
+    expect((await ctx.pool.query('select count(*)::int as n from users where email = $1', [email])).rows[0].n).toBe(1);
+  });
+
+  it('without roles from the provider it still needs an existing account, as before', async () => {
+    const auth = ctx.app.get(AuthService);
+    await expect(auth.loginWithVerifiedEmail(emailOf(), `sub-${randomUUID()}`)).rejects.toMatchObject({ status: 401 });
+  });
+});
