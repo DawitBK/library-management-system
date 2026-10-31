@@ -3,6 +3,7 @@ import { cookies, headers } from 'next/headers';
 import { forwardedFor } from './client-ip';
 import { redirect } from 'next/navigation';
 import { ACCESS_COOKIE, API_URL } from './session';
+import { fetchWithRetry } from './resilient-fetch';
 
 export interface Problem {
   title?: string;
@@ -27,7 +28,7 @@ export async function api<T>(
 ): Promise<T> {
   const token = (await cookies()).get(ACCESS_COOKIE)?.value;
   if (!token) redirect('/login');
-  const res = await fetch(`${API_URL}/api/v1${path}`, {
+  const res = await fetchWithRetry(`${API_URL}/api/v1${path}`, {
     method: init.method ?? 'GET',
     headers: {
       authorization: `Bearer ${token}`,
@@ -69,7 +70,7 @@ export const CATALOG_TAG = 'catalog';
 
 /** An anonymous read of public catalogue data; cached briefly so a busy page does not hit the API on every view. */
 export async function publicApi<T>(path: string, revalidate = 30): Promise<T> {
-  const res = await fetch(`${API_URL}/api/v1${path}`, {
+  const res = await fetchWithRetry(`${API_URL}/api/v1${path}`, {
     next: { revalidate, tags: [CATALOG_TAG] },
   });
   if (!res.ok) {
@@ -93,7 +94,7 @@ export async function publicApiOrNull<T>(path: string, revalidate = 30): Promise
 export async function currentUser(): Promise<import('./types').User | null> {
   const token = (await cookies()).get(ACCESS_COOKIE)?.value;
   if (!token) return null;
-  const res = await fetch(`${API_URL}/api/v1/me`, {
+  const res = await fetchWithRetry(`${API_URL}/api/v1/me`, {
     headers: { authorization: `Bearer ${token}`, ...forwardedFor(await headers()) },
     cache: 'no-store',
   });
