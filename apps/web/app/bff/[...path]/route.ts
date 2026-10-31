@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { CATALOG_TAG } from '@/lib/server-api';
 import { forwardedFor } from '@/lib/client-ip';
 import { ACCESS_COOKIE, API_URL } from '@/lib/session';
+import { fetchWithRetry } from '@/lib/resilient-fetch';
 
 /** Reads a guest may make without signing in (the catalogue). Everything else needs the cookie. */
 const CATALOG_WRITES = new RegExp('^(books|genres|copies|loans|holds|members)(/|$)');
@@ -31,7 +32,7 @@ async function forward(request: NextRequest, ctx: { params: Promise<{ path: stri
   if (idem) headers['idempotency-key'] = idem;
 
   const hasBody = request.method !== 'GET' && request.method !== 'DELETE';
-  const upstream = await fetch(`${API_URL}/api/v1/${joined}${request.nextUrl.search}`, {
+  const upstream = await fetchWithRetry(`${API_URL}/api/v1/${joined}${request.nextUrl.search}`, {
     method: request.method,
     headers,
     body: hasBody ? await request.text() : undefined,
