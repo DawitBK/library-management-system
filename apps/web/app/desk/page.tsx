@@ -34,8 +34,8 @@ export default async function DeskHome() {
         <Stat label="Holds ready" value={ready.page.total} />
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <section>
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <section className="min-w-0">
           <h2 className="mb-2 text-sm font-semibold">Overdue, oldest first</h2>
           {overdue.length === 0 ? (
             <Empty>Nothing is overdue.</Empty>
@@ -56,7 +56,7 @@ export default async function DeskHome() {
             </Table>
           )}
         </section>
-        <section>
+        <section className="min-w-0">
           <h2 className="mb-2 text-sm font-semibold">Waiting at the desk for pickup</h2>
           {ready.items.length === 0 ? (
             <Empty>No reserved copies are waiting.</Empty>
